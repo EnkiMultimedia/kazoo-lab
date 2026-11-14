@@ -61,8 +61,22 @@ case "${1:-}" in
         ;;
     bootstrap)
         log "master account"
-        docker exec kazoo-lab-kazoo-1 /opt/kazoo/bin/sup -n kazoo -c "$COOKIE" \
-            crossbar_maintenance create_account admin master.kazoo.lab admin admin123 || true
+        # crossbar loads the system schemas after the API is up; until then
+        # account creation fails with a schema not_found
+        n=0
+        while :; do
+            out=$(docker exec kazoo-lab-kazoo-1 /opt/kazoo/bin/sup -n kazoo -c "$COOKIE" \
+                crossbar_maintenance create_account admin master.kazoo.lab admin admin123 2>&1 || true)
+            case "$out" in
+                *"finished promoting account"*) log "master account created"; break ;;
+                *kz_json_schema*not_found*|*not_found*kz_json_schema*)
+                    n=$((n + 1))
+                    [ "$n" -ge 30 ] && { echo "$out"; exit 1; }
+                    sleep 5 ;;
+                *already*|*exists*) log "master account exists"; break ;;
+                *) echo "$out"; exit 1 ;;
+            esac
+        done
         log "allowing Kamailio ($KAMAILIO_IP) as SBC"
         docker exec kazoo-lab-kazoo-1 /opt/kazoo/bin/sup -n kazoo -c "$COOKIE" \
             ecallmgr_maintenance allow_sbc kamailio "$KAMAILIO_IP" || true

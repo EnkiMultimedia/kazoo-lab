@@ -16,7 +16,7 @@ Pinned commits are in `sources.env`; this page explains them.
 | Kamailio | `ghcr.io/kamailio/kamailio-ci:6.1` (upstream image) | 6.1.5 | None |
 | Kamailio config | [EnkiMultimedia/kazoo-configs-kamailio](https://github.com/EnkiMultimedia/kazoo-configs-kamailio) branch `opencore-lab`, from 2600hz `4.3` (`63cece75`) | `b9e917c6` | Ported to Kamailio 6.1 and the stock modules, see below |
 | Kazoo config | [EnkiMultimedia/kazoo-configs-core](https://github.com/EnkiMultimedia/kazoo-configs-core) `4.3` | `cbcc916d` | None in the fork; `config/kazoo/config.ini` is derived from its `config.ini` with lab hosts and ports |
-| Kazoo | [EnkiMultimedia/kazoo-opencore](https://github.com/EnkiMultimedia/kazoo-opencore) branch `otp29-stock-stack` | `fae4c5ef` | That branch |
+| Kazoo | [EnkiMultimedia/kazoo-opencore](https://github.com/EnkiMultimedia/kazoo-opencore) branch `otp29-stock-stack` | `c48d9068` | That branch |
 | CouchDB | `couchdb:3.5` | | None |
 | RabbitMQ | `rabbitmq:4.1-management` | | Consistent hash exchange plugin enabled |
 | Kamailio DB init | `alpine:3.22` + `sqlite`, schema files from the Kamailio image | | Runs the config's own schema scripts |
