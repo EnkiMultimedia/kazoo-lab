@@ -26,7 +26,8 @@ checkout() { # repo ref dir
     if [ ! -d "$3/.git" ]; then
         git clone -q "$1" "$3"
     fi
-    git -C "$3" fetch -q --all 2>/dev/null || true
+    git -C "$3" remote set-url origin "$1"
+    git -C "$3" fetch -q origin
     git -C "$3" checkout -q "$2"
     log "$(basename "$3") at $(git -C "$3" rev-parse --short HEAD)"
 }
