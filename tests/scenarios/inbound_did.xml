@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Inbound DID Test Scenario
+
+  Simulates an external carrier sending a call to a phone number (DID).
+  SIPp acts as the carrier, sending to FreeSWITCH external profile (port 5080).
+
+  Expected flow:
+  1. SIPp sends INVITE to +15551234567
+  2. FreeSWITCH routes to Kazoo
+  3. Kazoo finds callflow for that number
+  4. Callflow answers and hangs up
+  5. SIPp receives BYE
+
+  Variables (set via -set or injection file):
+    - did: The destination phone number (e.g., +15551234567)
+    - caller_id: The calling party number (e.g., +18005551212)
+-->
+<scenario name="Inbound DID Call">
+
+  <!-- Declare global variables that will be set via -set command line -->
+  <Global variables="did,caller_id"/>
+
+  <!-- Send INVITE as if from external carrier -->
+  <send retrans="500">
+    <![CDATA[
+INVITE sip:[$did]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: "[$caller_id]" <sip:[$caller_id]@carrier.test.local>;tag=[pid]SIPpTag[call_number]
+To: <sip:[$did]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Contact: <sip:[$caller_id]@[local_ip]:[local_port]>
+Max-Forwards: 70
+User-Agent: SIPp-Carrier-Test/1.0
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=SIPp 53655765 2353687637 IN IP[local_ip_type] [local_ip]
+s=Inbound Test Call
+c=IN IP[media_ip_type] [media_ip]
+t=0 0
+m=audio [auto_media_port] RTP/AVP 0 8 101
+a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-16
+a=ptime:20
+a=sendrecv
+]]>
+  </send>
+
+  <!-- Handle provisional responses -->
+  <recv response="100" optional="true" timeout="5000">
+  </recv>
+
+  <recv response="180" optional="true" timeout="10000">
+  </recv>
+
+  <recv response="183" optional="true" timeout="10000">
+  </recv>
+
+  <!-- Wait for 200 OK (call answered) -->
+  <recv response="200" rtd="true" timeout="30000" rrs="true">
+  </recv>
+
+  <!-- Send ACK -->
+  <send>
+    <![CDATA[
+ACK sip:[$did]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+[last_From:]
+[last_To:]
+Call-ID: [call_id]
+CSeq: 1 ACK
+Contact: <sip:[$caller_id]@[local_ip]:[local_port]>
+Max-Forwards: 70
+Content-Length: 0
+]]>
+  </send>
+
+  <!-- Wait for BYE from server (callflow does answer->hangup) -->
+  <recv request="BYE" timeout="30000">
+  </recv>
+
+  <!-- Respond 200 OK to BYE -->
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:]
+Call-ID: [call_id]
+CSeq: [cseq] BYE
+Content-Length: 0
+]]>
+  </send>
+
+  <!-- Log success -->
+  <ResponseTimeRepartition value="100, 200, 500, 1000, 2000, 5000, 10000"/>
+  <CallLengthRepartition value="100, 500, 1000, 2000, 5000, 10000, 30000"/>
+
+</scenario>

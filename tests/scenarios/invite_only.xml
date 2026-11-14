@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  Minimal INVITE Scenario (No Authentication)
+
+  This scenario sends a simple INVITE without registration or authentication.
+  Designed for use with minimal Kamailio setups that don't require auth.
+
+  Flow:
+  1. Send INVITE to target extension
+  2. Handle provisional responses (100/180/183)
+  3. Receive 200 OK (call answered)
+  4. Send ACK
+  5. Wait for BYE from server (callflow: answer -> hangup)
+  6. Respond 200 OK to BYE
+
+  CSV injection file format:
+  SEQUENTIAL
+  username;password;domain
+
+  Note: password field is ignored in this scenario (no auth)
+-->
+<scenario name="Invite Only (No Auth)">
+
+  <!-- Send INVITE to extension 1000 (no prior registration required) -->
+  <send retrans="500">
+    <![CDATA[
+INVITE sip:1000@[field2] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: "[field0]" <sip:[field0]@[field2]>;tag=[pid]SIPpTag[call_number]
+To: <sip:1000@[field2]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Contact: <sip:[field0]@[local_ip]:[local_port];transport=[transport]>
+Max-Forwards: 70
+User-Agent: SIPp-E2E-Test/1.0
+Allow: INVITE, ACK, CANCEL, BYE, OPTIONS
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=sipp [call_number] [call_number] IN IP[local_ip_type] [local_ip]
+s=SIPp E2E Test Call
+c=IN IP[local_ip_type] [local_ip]
+t=0 0
+m=audio [auto_media_port] RTP/AVP 0 8 101
+a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-16
+a=sendrecv
+    ]]>
+  </send>
+
+  <!-- Handle provisional responses (all optional) -->
+  <recv response="100" optional="true"/>
+
+  <recv response="180" optional="true"/>
+
+  <recv response="183" optional="true"/>
+
+  <!-- Wait for 200 OK (call answered) -->
+  <recv response="200" rtd="true">
+    <action>
+      <ereg regexp=".*" search_in="hdr" header="To:" assign_to="remote_to"/>
+    </action>
+  </recv>
+
+  <!-- Send ACK -->
+  <send>
+    <![CDATA[
+ACK sip:1000@[field2] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: "[field0]" <sip:[field0]@[field2]>;tag=[pid]SIPpTag[call_number]
+[$remote_to]
+Call-ID: [call_id]
+CSeq: 1 ACK
+Contact: <sip:[field0]@[local_ip]:[local_port];transport=[transport]>
+Max-Forwards: 70
+Content-Length: 0
+
+    ]]>
+  </send>
+
+  <!-- Wait for BYE from server (callflow does answer -> hangup) -->
+  <recv request="BYE" timeout="10000"/>
+
+  <!-- Respond 200 OK to BYE -->
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[field0]@[local_ip]:[local_port];transport=[transport]>
+Content-Length: 0
+
+    ]]>
+  </send>
+
+  <!-- Response time and call length statistics -->
+  <ResponseTimeRepartition value="100, 200, 500, 1000, 2000, 5000, 10000"/>
+  <CallLengthRepartition value="100, 500, 1000, 2000, 5000, 10000, 30000"/>
+
+</scenario>

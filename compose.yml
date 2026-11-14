@@ -1,0 +1,197 @@
+# Kazoo lab: one CouchDB, one RabbitMQ, one Kamailio, one FreeSWITCH and one
+# Kazoo node, built only from the sources pinned in sources.env.
+#
+#   ./scripts/lab.sh fetch && ./scripts/lab.sh build && ./scripts/lab.sh up
+#
+# Node names are long names in the kazoo.lab domain:
+#   kazoo@kazoo.kazoo.lab, freeswitch@freeswitch.kazoo.lab
+
+name: kazoo-lab
+
+x-lab-host: &lab-host
+  domainname: kazoo.lab
+  restart: unless-stopped
+
+networks:
+  lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  couchdb-data:
+  rabbitmq-data:
+  kamailio-db:
+
+services:
+  couchdb:
+    <<: *lab-host
+    image: ${COUCHDB_IMAGE}
+    hostname: couchdb
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: admin
+    volumes:
+      - couchdb-data:/opt/couchdb/data
+    networks:
+      lab:
+        ipv4_address: 172.30.0.10
+        aliases: [couchdb.kazoo.lab]
+    ports:
+      - "127.0.0.1:5984:5984"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5984/_up"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    <<: *lab-host
+    image: ${RABBITMQ_IMAGE}
+    hostname: rabbitmq
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./config/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    networks:
+      lab:
+        ipv4_address: 172.30.0.11
+        aliases: [rabbitmq.kazoo.lab]
+    ports:
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  freeswitch:
+    <<: *lab-host
+    build:
+      context: ./images/freeswitch
+      args:
+        ERLANG_VERSION: ${ERLANG_VERSION}
+        FREESWITCH_REPO: ${FREESWITCH_REPO}
+        FREESWITCH_REF: ${FREESWITCH_REF}
+        SOFIA_SIP_REPO: ${SOFIA_SIP_REPO}
+        SOFIA_SIP_REF: ${SOFIA_SIP_REF}
+        SPANDSP_REPO: ${SPANDSP_REPO}
+        SPANDSP_REF: ${SPANDSP_REF}
+        MOD_KAZOO_REPO: ${MOD_KAZOO_REPO}
+        MOD_KAZOO_REF: ${MOD_KAZOO_REF}
+        FREESWITCH_CONFIGS_REPO: ${FREESWITCH_CONFIGS_REPO}
+        FREESWITCH_CONFIGS_REF: ${FREESWITCH_CONFIGS_REF}
+    image: kazoo-lab/freeswitch:local
+    hostname: freeswitch
+    cap_add: [SYS_NICE]
+    ulimits:
+      rtprio: 99
+    environment:
+      KAZOO_COOKIE: kazoo_lab_cookie
+      KAZOO_NODENAME: freeswitch
+    networks:
+      lab:
+        ipv4_address: 172.30.0.12
+        aliases: [freeswitch.kazoo.lab]
+
+  kamailio-dbinit:
+    build:
+      context: ./images/kamailio-dbinit
+      args:
+        KAMAILIO_IMAGE: ${KAMAILIO_IMAGE}
+    image: kazoo-lab/kamailio-dbinit:local
+    volumes:
+      - ./sources/kazoo-configs-kamailio/kamailio:/etc/kamailio:ro
+      - kamailio-db:/var/lib/kamailio
+    networks: [lab]
+
+  kamailio:
+    <<: *lab-host
+    image: ${KAMAILIO_IMAGE}
+    hostname: kamailio
+    # the image entrypoint is "kamailio -DD -E"; the config is the 2600hz one,
+    # parameterized on the command line instead of editing local.cfg
+    command:
+      - "-m"
+      - "256"
+      - "-M"
+      - "32"
+      - "-f"
+      - "/etc/kamailio/kamailio.cfg"
+      - "-A"
+      - "KZ_DB_MODULE=sqlite"
+      - "--substdef=!KAZOO_DB_URL!sqlite:////var/lib/kamailio/kazoo.db!"
+      - "--substdef=!MY_AMQP_URL!amqp://guest:guest@rabbitmq.kazoo.lab:5672!"
+      - "--substdef=!MY_IP_ADDRESS!172.30.0.13!"
+      - "--substdef=!MY_HOSTNAME!kamailio.kazoo.lab!"
+      - "--substdef=!KAZOO_DATA_DIR!/var/lib/kamailio!"
+    volumes:
+      - ./sources/kazoo-configs-kamailio/kamailio:/etc/kamailio:ro
+      - kamailio-db:/var/lib/kamailio
+    tmpfs:
+      - /run/kamailio
+      - /var/run/kamailio
+    networks:
+      lab:
+        ipv4_address: 172.30.0.13
+        aliases: [kamailio.kazoo.lab]
+    ports:
+      - "127.0.0.1:5060:5060/udp"
+    depends_on:
+      kamailio-dbinit:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+  kazoo:
+    <<: *lab-host
+    build:
+      context: ./sources/kazoo-opencore
+      dockerfile: deploy/docker/Dockerfile
+    image: kazoo-lab/kazoo:local
+    hostname: kazoo
+    environment:
+      KAZOO_NODE: kazoo
+      NODE_NAME_TYPE: -name
+      KAZOO_DIST: inet_tcp
+      KAZOO_COOKIE: kazoo_lab_cookie
+      ERLANG_COOKIE: kazoo_lab_cookie
+      KAZOO_ZONE: lab
+      KAZOO_APPS: "sysconf,ecallmgr,registrar,callflow,crossbar,cdr,stepswitch,trunkstore,media_mgr,conference,hangups,reorder"
+    volumes:
+      - ./config/kazoo/config.ini:/etc/kazoo/core/config.ini:ro
+    networks:
+      lab:
+        ipv4_address: 172.30.0.20
+        aliases: [kazoo.kazoo.lab]
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      couchdb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      freeswitch:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/v2/ | grep -qE '^(200|401)$'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+  sipp:
+    profiles: [test]
+    build:
+      context: ./tests
+    image: kazoo-lab/sipp:local
+    environment:
+      KAZOO_API_URL: http://kazoo.kazoo.lab:8000/v2
+      KAMAILIO_HOST: kamailio.kazoo.lab
+      KAMAILIO_PORT: "5060"
+      FREESWITCH_HOST: freeswitch.kazoo.lab
+      FREESWITCH_EXTERNAL_PORT: "11000"
+      MASTER_ACCOUNT: admin
+      MASTER_USER: admin
+      MASTER_PASS: admin123
+    networks: [lab]
